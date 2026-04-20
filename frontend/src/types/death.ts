@@ -6,6 +6,7 @@ export type CauseCode =
   | "SPEED_RUG"
 
 export type Tone = "savage" | "eulogy" | "comic" | "tragic"
+export type McapCurrency = "USD" | "BNB"
 
 export interface DeathRecord {
   address: string
@@ -15,6 +16,7 @@ export interface DeathRecord {
   diedAt: string
   lifespanMinutes: number
   peakMcapUSD: number
+  peakMcapCurrency: McapCurrency
   totalBuyers: number
   totalTrades: number
   creatorWallet: string
@@ -23,5 +25,6 @@ export interface DeathRecord {
   obituary: string
   epitaph: string
   tone: Tone
+  tokenImageUrl: string
   cardImageUrl: string
 }

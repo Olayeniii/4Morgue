@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { DeathRecord } from "../types/death"
-import { fetchLive } from "../lib/api"
+import { fetchGraveyard } from "../lib/api"
 import { getWsUrl } from "../lib/ws"
 
 export function useDeathStream() {
@@ -10,15 +10,17 @@ export function useDeathStream() {
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<DeathRecord | null>(null)
   const seen = useRef(new Set<string>())
+  const loadedInitial = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchLive()
+      const data = await fetchGraveyard({ limit: 50 })
       setItems(data.items)
-      setCount(data.count)
+      setCount(data.total)
       seen.current = new Set(data.items.map((i) => i.address.toLowerCase()))
+      loadedInitial.current = true
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed")
     } finally {
@@ -43,6 +45,7 @@ export function useDeathStream() {
             | { type: "snapshot"; count: number; items: DeathRecord[] }
             | { type: "new_death"; token: DeathRecord }
           if (msg.type === "snapshot") {
+            if (loadedInitial.current) return
             setCount(msg.count)
             setItems(msg.items)
             seen.current = new Set(msg.items.map((i) => i.address.toLowerCase()))
@@ -75,5 +78,3 @@ export function useDeathStream() {
 
   return { items, count, loading, error, toast, reload: load }
 }
-
-

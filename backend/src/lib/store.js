@@ -4,11 +4,45 @@ function normalize(addr) {
   return String(addr).toLowerCase()
 }
 
+function getRecordAddress(record) {
+  return record?.address || record?.token || null
+}
+
 function stripInternal(row) {
   if (row == null) return row
   const { _source, ...rest } = row
   void _source
   return rest
+}
+
+function asTime(value) {
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function asNumber(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
+
+function compareDeaths(a, b) {
+  const diedDiff = asTime(b.diedAt) - asTime(a.diedAt)
+  if (diedDiff !== 0) return diedDiff
+
+  const bHasMcap = asNumber(b.peakMcapUSD) > 0 ? 1 : 0
+  const aHasMcap = asNumber(a.peakMcapUSD) > 0 ? 1 : 0
+  if (bHasMcap !== aHasMcap) return bHasMcap - aHasMcap
+
+  const mcapDiff = asNumber(b.peakMcapUSD) - asNumber(a.peakMcapUSD)
+  if (mcapDiff !== 0) return mcapDiff
+
+  const tradesDiff = asNumber(b.totalTrades) - asNumber(a.totalTrades)
+  if (tradesDiff !== 0) return tradesDiff
+
+  const buyersDiff = asNumber(b.totalBuyers) - asNumber(a.totalBuyers)
+  if (buyersDiff !== 0) return buyersDiff
+
+  return asTime(b.createdAt) - asTime(a.createdAt)
 }
 
 /**
@@ -30,7 +64,9 @@ export function createStore() {
   const byAddress = new Map()
 
   for (const d of getInitialDeaths()) {
-    byAddress.set(normalize(d.token), { ...d, _source: "mock" })
+    const address = getRecordAddress(d)
+    if (!address) continue
+    byAddress.set(normalize(address), { ...d, _source: "mock" })
   }
 
   return {
@@ -39,9 +75,18 @@ export function createStore() {
      * @returns {boolean} true if inserted (false if duplicate)
      */
     addDeath(record) {
-      const k = normalize(record.token)
+      const address = getRecordAddress(record)
+      if (!address) {
+        console.warn("[store] addDeath skipped record with no address")
+        return false
+      }
+      const k = normalize(address)
       if (byAddress.has(k)) return false
-      byAddress.set(k, { ...record, _source: record._source || "live" })
+      byAddress.set(k, {
+        ...record,
+        address: record.address || address,
+        _source: record._source || "live",
+      })
       return true
     },
 
@@ -57,7 +102,7 @@ export function createStore() {
     all() {
       return [...byAddress.values()]
         .map(stripInternal)
-        .sort((a, b) => new Date(b.diedAt) - new Date(a.diedAt))
+        .sort(compareDeaths)
     },
 
     get(token) {

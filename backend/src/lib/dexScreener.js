@@ -22,6 +22,7 @@ export async function fetchTokenTradeStats(tokenAddress) {
         priceUsd: 0,
         fdv: 0,
         marketCapUsd: 0,
+        imageUrl: "",
       };
     }
 
@@ -35,6 +36,7 @@ export async function fetchTokenTradeStats(tokenAddress) {
         priceUsd: 0,
         fdv: 0,
         marketCapUsd: 0,
+        imageUrl: "",
       };
     }
 
@@ -48,6 +50,7 @@ export async function fetchTokenTradeStats(tokenAddress) {
         priceUsd: 0,
         fdv: 0,
         marketCapUsd: 0,
+        imageUrl: "",
       };
     }
 
@@ -72,6 +75,7 @@ export async function fetchTokenTradeStats(tokenAddress) {
       priceUsd: Number(primaryPair?.priceUsd) || 0,
       fdv: Number(primaryPair?.fdv) || 0,
       marketCapUsd: Number(primaryPair?.marketCap || primaryPair?.liquidity?.usd || 0),
+      imageUrl: primaryPair?.info?.imageUrl || "",
     };
   } catch (error) {
     console.error(`DexScreener API error for ${tokenAddress}:`, error);
@@ -82,6 +86,7 @@ export async function fetchTokenTradeStats(tokenAddress) {
       priceUsd: 0,
       fdv: 0,
       marketCapUsd: 0,
+      imageUrl: "",
     };
   }
 }

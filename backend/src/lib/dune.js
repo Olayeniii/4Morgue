@@ -4,6 +4,7 @@
  */
 
 import { DuneClient } from "@duneanalytics/client-sdk"
+import { pickEpitaph } from "../engine/epitaphPool.js"
 
 /**
  * Fetch historical Four.meme token data from Dune.
@@ -64,28 +65,34 @@ export function duneRowToDeath(row) {
     return null
   }
 
-  // Map Dune column names to our schema
-  const createdAt = row.born_at
-    ? new Date(row.born_at).toISOString()
+  // Map the current Dune query output first, then fall back to older schemas.
+  const createdAt = row.created_at || row.born_at
+    ? new Date(row.created_at || row.born_at).toISOString()
     : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
 
-  const diedAt = row.last_heartbeat
-    ? new Date(row.last_heartbeat).toISOString()
+  const diedAt = row.died_at || row.last_trade_at || row.last_heartbeat
+    ? new Date(row.died_at || row.last_trade_at || row.last_heartbeat).toISOString()
     : new Date(new Date(createdAt).getTime() + 2 * 60 * 60 * 1000).toISOString()
 
-  const lifespanMinutes = row.lifespan_hrs 
+  const lifespanMinutes = row.lifespan_hrs
     ? Math.round(row.lifespan_hrs * 60)
     : Math.max(1, Math.round((new Date(diedAt) - new Date(createdAt)) / 60000))
 
-  const totalBuyers = Number(row.mourners || row.total_buyers || row.buyers || 0)
+  const totalBuyers = Number(row.total_buyers || row.mourners || row.buyers || 0)
+  const volumeBnb = Number(row.total_volume_bnb || 0)
   const volumeUsd = Number(row.estate_value_usd || row.total_volume_usd || row.volume_usd || 0)
   const bondingCurve = Number(row.bonding_curve_pct || row.bonding_curve || 0)
 
-  const peakMcapUSD = Number(row.peak_mcap_usd || volumeUsd * 3 || 0)
+  const peakMcapValue = Number(
+    row.marketcap_bnb ||
+      row.peak_mcap_usd ||
+      volumeUsd * 3 ||
+      0
+  )
 
   // Parse cause from Dune's text field
   const duneCause = row.cause_of_death || ""
-  const cause = mapDuneCause(duneCause, { totalBuyers, lifespanMinutes, bondingCurve, volumeUsd })
+  const cause = mapDuneCause(duneCause, { totalBuyers, lifespanMinutes, bondingCurve, volumeUsd: volumeUsd || volumeBnb })
 
   // Extract name and symbol from "Name (SYMBOL)" format
   const nameMatch = row.deceased_name?.match(/^(.+?)\s*\((.+?)\)$/)
@@ -100,15 +107,17 @@ export function duneRowToDeath(row) {
     diedAt,
     graduated,
     lifespanMinutes,
-    peakMcapUSD: Math.round(peakMcapUSD),
+    peakMcapUSD: peakMcapValue,
+    peakMcapCurrency: row.marketcap_bnb ? "BNB" : row.peak_mcap_usd ? "USD" : "USD",
     totalBuyers,
-    totalTrades: Number(row.total_trades || totalBuyers * 2 || 0),
+    totalTrades: Number(row.total_trades || 0),
     creatorWallet: row.next_of_kin || row.creator || row.creator_wallet || "0x0000000000000000000000000000000000000000",
     causeOfDeath: cause,
     bondingCurveMax: Math.round(bondingCurve),
     obituary: "",
-    epitaph: FALLBACK_EPITAPHS[cause],
+    epitaph: pickEpitaph(cause, token),
     tone: CAUSE_TONES[cause],
+    tokenImageUrl: "",
     cardImageUrl: "",
   }
 }
@@ -130,6 +139,14 @@ function inferCause({ totalBuyers, lifespanMinutes, bondingCurve, volumeUsd }) {
  * Map Dune's text cause to our enum
  */
 function mapDuneCause(duneText, metrics) {
+  const normalized = String(duneText || "").trim().toUpperCase()
+
+  if (normalized === "DEV_DUMP") return "DEV_DUMP"
+  if (normalized === "NEVER_LAUNCHED") return "NEVER_LAUNCHED"
+  if (normalized === "QUIET_FADE") return "QUIET_FADE"
+  if (normalized === "STALLED_AT_90") return "STALLED_AT_90"
+  if (normalized === "SPEED_RUG") return "SPEED_RUG"
+
   if (duneText.includes("Murdered by Dev")) return "DEV_DUMP"
   if (duneText.includes("Stillborn")) return "NEVER_LAUNCHED"
   if (duneText.includes("Abandoned")) return "QUIET_FADE"
@@ -137,14 +154,6 @@ function mapDuneCause(duneText, metrics) {
   
   // Fallback to inference
   return inferCause(metrics)
-}
-
-const FALLBACK_EPITAPHS = {
-  DEV_DUMP: "They said to the moon. They meant to my wallet.",
-  QUIET_FADE: "It traded once, then the world forgot.",
-  NEVER_LAUNCHED: "Born a token. Died a dream.",
-  STALLED_AT_90: "So close. So, so close.",
-  SPEED_RUG: "Here one minute. Literally.",
 }
 
 const CAUSE_TONES = {
@@ -164,6 +173,8 @@ const CAUSE_TONES = {
  * @returns {Promise<number>} number of new deaths added
  */
 export async function seedFromDune(store, duneApiKey) {
+
+  
   console.log("[dune] seeding graveyard from historical data…")
   let added = 0
   try {
@@ -172,6 +183,49 @@ export async function seedFromDune(store, duneApiKey) {
     for (const row of rows) {
       const death = duneRowToDeath(row)
       if (!death) continue
+      console.log(
+        "[dune][map]",
+        JSON.stringify({
+          raw: {
+            token: row.token,
+            name: row.name,
+            symbol: row.symbol,
+            created_at: row.created_at,
+            total_trades: row.total_trades,
+            total_buyers: row.total_buyers,
+            last_trade_at: row.last_trade_at,
+            total_volume_bnb: row.total_volume_bnb,
+            marketcap_bnb: row.marketcap_bnb,
+            cause_of_death: row.cause_of_death,
+            died_at: row.died_at,
+          },
+          mapped: {
+            address: death.address,
+            name: death.name,
+            symbol: death.symbol,
+            createdAt: death.createdAt,
+            diedAt: death.diedAt,
+            totalTrades: death.totalTrades,
+            totalBuyers: death.totalBuyers,
+            peakMcapValue: death.peakMcapUSD,
+            peakMcapCurrency: death.peakMcapCurrency,
+            causeOfDeath: death.causeOfDeath,
+          },
+        })
+      )
+      const existing = store.get(death.address)
+      if (existing) {
+        store.updateDeath(death.address, {
+          ...death,
+          obituary: existing.obituary || death.obituary,
+          epitaph: existing.epitaph || death.epitaph,
+          tone: existing.obituary ? existing.tone : death.tone,
+          tokenImageUrl: existing.tokenImageUrl || death.tokenImageUrl,
+          cardImageUrl: existing.cardImageUrl || death.cardImageUrl,
+        })
+        continue
+      }
+
       const inserted = store.addDeath(death)
       if (inserted) added++
     }
@@ -182,12 +236,3 @@ export async function seedFromDune(store, duneApiKey) {
   }
   return added
 }
-
-
-
-
-
-
-
-
-

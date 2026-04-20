@@ -39,11 +39,17 @@ export function startEngine(ctx) {
       try {
         const meta = await fetchFourMemeMeta(address)
         if (meta?.bondingCurve != null) {
-          tracker.applyMeta(address, { bondingCurvePercent: meta.bondingCurve })
+          tracker.applyMeta(address, {
+            bondingCurvePercent: meta.bondingCurve,
+            tokenImageUrl: meta.imageUrl,
+          })
           console.log(`[engine] ${address.slice(0, 10)}… curve: ${meta.bondingCurve}%`)
         }
-        if (meta?.creator) {
-          tracker.applyMeta(address, { creatorWallet: meta.creator })
+        if (meta?.creator || meta?.imageUrl) {
+          tracker.applyMeta(address, {
+            creatorWallet: meta.creator,
+            tokenImageUrl: meta.imageUrl,
+          })
         }
       } catch (e) {
         console.warn("[four.meme] metadata fetch failed:", address.slice(0, 10), e.message)
@@ -75,10 +81,16 @@ export function startEngine(ctx) {
       try {
         const meta = await fetchFourMemeMeta(t.address)
         if (meta?.bondingCurve != null) {
-          tracker.applyMeta(t.address, { bondingCurvePercent: meta.bondingCurve })
+          tracker.applyMeta(t.address, {
+            bondingCurvePercent: meta.bondingCurve,
+            tokenImageUrl: meta.imageUrl,
+          })
         }
-        if (meta?.creator && !t.creatorWallet) {
-          tracker.applyMeta(t.address, { creatorWallet: meta.creator })
+        if ((meta?.creator && !t.creatorWallet) || (meta?.imageUrl && !t.tokenImageUrl)) {
+          tracker.applyMeta(t.address, {
+            creatorWallet: meta.creator,
+            tokenImageUrl: meta.imageUrl,
+          })
         }
       } catch {
         /* ignore — non-critical */

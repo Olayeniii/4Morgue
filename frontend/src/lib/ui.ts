@@ -1,4 +1,4 @@
-import type { CauseCode, DeathRecord } from "../types/death"
+import type { CauseCode, DeathRecord, McapCurrency } from "../types/death"
 
 export function formatTimeAgo(iso: string) {
   const value = new Date(iso).getTime()
@@ -46,6 +46,25 @@ export function formatUsdCompact(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
   return `$${Math.round(n).toLocaleString()}`
+}
+
+export function formatMcapCompact(n: number, currency: McapCurrency = "USD") {
+  if (currency === "BNB") {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M BNB`
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K BNB`
+    if (n >= 100) return `${Math.round(n).toLocaleString()} BNB`
+    return `${n.toFixed(2)} BNB`
+  }
+
+  return formatUsdCompact(n)
+}
+
+export function getMcapLabel(currency: McapCurrency = "USD") {
+  return currency === "BNB" ? "Peak MCAP (BNB)" : "Peak MCAP"
+}
+
+export function formatFinalMcap(currency: McapCurrency = "USD") {
+  return currency === "BNB" ? "0 BNB" : "$0.00"
 }
 
 type CauseMeta = {

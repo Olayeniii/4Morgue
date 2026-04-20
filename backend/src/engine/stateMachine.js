@@ -20,6 +20,7 @@ import { classifyCause } from "./classifier.js"
  * @property {Set<string>} buyerSample
  * @property {number} peakMcapUSD
  * @property {number} bondingCurveMax
+ * @property {string} tokenImageUrl
  * @property {number | null} firstReachedHighBondingAtMs
  * @property {number} creatorSellPercentGuess
  * @property {number} priceDropPercentGuess
@@ -68,6 +69,7 @@ export function createTokenTracker({ maxTracked = 80 } = {}) {
       buyerSample: new Set(),
       peakMcapUSD: 0,
       bondingCurveMax: 0,
+      tokenImageUrl: "",
       firstReachedHighBondingAtMs: null,
       creatorSellPercentGuess: 0,
       priceDropPercentGuess: 0,
@@ -78,7 +80,7 @@ export function createTokenTracker({ maxTracked = 80 } = {}) {
 
   /**
    * @param {string} address
-   * @param {{ trades?: number, buyers?: number, volumeUsd?: number, lastTradeAtMs?: number }} stats
+   * @param {{ trades?: number, buyers?: number, volumeUsd?: number, lastTradeAtMs?: number, imageUrl?: string }} stats
    */
   function applyTradeStats(address, stats) {
     const t = tokens.get(key(address))
@@ -98,11 +100,14 @@ export function createTokenTracker({ maxTracked = 80 } = {}) {
     } else if (t.totalTrades > prevTrades || t.totalBuyers > prevBuyers) {
       t.lastTradeAtMs = Date.now()
     }
+    if (stats.imageUrl && !t.tokenImageUrl) {
+      t.tokenImageUrl = stats.imageUrl
+    }
   }
 
   /**
    * @param {string} address
-   * @param {{ bondingCurvePercent?: number, creatorWallet?: string }} meta
+   * @param {{ bondingCurvePercent?: number, creatorWallet?: string, tokenImageUrl?: string }} meta
    */
   function applyMeta(address, meta) {
     const t = tokens.get(key(address))
@@ -116,6 +121,7 @@ export function createTokenTracker({ maxTracked = 80 } = {}) {
       }
     }
     if (meta.creatorWallet) t.creatorWallet = meta.creatorWallet
+    if (meta.tokenImageUrl && !t.tokenImageUrl) t.tokenImageUrl = meta.tokenImageUrl
   }
 
   /**

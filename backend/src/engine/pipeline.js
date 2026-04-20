@@ -57,6 +57,7 @@ export async function processDeath(token, cause, ctx) {
     diedAt:          diedAt.toISOString(),
     lifespanMinutes,
     peakMcapUSD:     Math.round(token.peakMcapUSD || 0),
+    peakMcapCurrency:"USD",
     totalBuyers:     token.totalBuyers || 0,
     totalTrades:     token.totalTrades || 0,
     creatorWallet:   token.creatorWallet || null,
@@ -67,6 +68,7 @@ export async function processDeath(token, cause, ctx) {
     // Obituary intentionally blank — generated lazily via GET /api/deaths/:address
     // when a user actually views the token. Zero AI cost at death time.
     obituary:        "",
+    tokenImageUrl:   token.tokenImageUrl || "",
     cardImageUrl:    "",
   }
 

@@ -30,8 +30,7 @@ app.use(cors({ origin: true }))
 app.use(express.json())
 
 const ctx = { store, broadcast, apiPublicUrl: API_PUBLIC }
-const engine = startEngine(ctx)
-ctx.tracker = engine.tracker
+let engine = null
 
 app.use("/api", createRouter(ctx))
 
@@ -52,7 +51,10 @@ const wss = new WebSocketServer({ server, path: "/ws/deaths" })
 
 wss.on("connection", (ws) => {
   clients.add(ws)
-  const items = withPublicUrls(store.live(50), API_PUBLIC)
+  const items = withPublicUrls(
+    store.graveyard({ cursor: 0, limit: 50, q: "", cause: "" }).items,
+    API_PUBLIC
+  )
   ws.send(JSON.stringify({ type: "snapshot", count: store.count(), items }))
   ws.on("close", () => clients.delete(ws))
 })
@@ -85,10 +87,12 @@ server.listen(PORT, async () => {
   // Seed immediately on startup
   await refreshDune()
 
+  engine = startEngine(ctx)
+  ctx.tracker = engine.tracker
+
   // Then refresh on a cron
   if (process.env.DUNE_API_KEY) {
     setInterval(() => void refreshDune().catch(console.error), DUNE_REFRESH_MS)
     console.log(`[dune] cron refresh every ${DUNE_REFRESH_MS / 1000}s`)
   }
 })
-

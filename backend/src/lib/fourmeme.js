@@ -3,7 +3,7 @@
  * Response shape may change — we only read common fields.
  *
  * @param {string} address
- * @returns {Promise<{ name?: string, symbol?: string, creator?: string, bondingCurve?: number } | null>}
+ * @returns {Promise<{ name?: string, symbol?: string, creator?: string, bondingCurve?: number, imageUrl?: string } | null>}
  */
 export async function fetchFourMemeMeta(address) {
   const a = address.toLowerCase()
@@ -41,6 +41,7 @@ function normalizeMeta(row) {
     symbol: row.symbol || row.ticker,
     creator: row.creatorAddress || row.creator || row.devAddress,
     bondingCurve: typeof bonding === "number" ? Math.min(100, Math.max(0, bonding)) : undefined,
+    imageUrl: row.logo || row.logoUrl || row.image || row.imageUrl || row.icon || "",
   }
 }
 

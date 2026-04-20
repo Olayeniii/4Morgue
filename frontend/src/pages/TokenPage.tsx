@@ -24,14 +24,14 @@ export function TokenPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] px-4 py-5 text-[var(--text)] lg:px-5">
-      <div className="mx-auto max-w-[1100px]">
+      <div className="mx-auto max-w-[760px]">
         <header className="panel-shell flex items-center justify-between rounded-[24px] px-5 py-4">
           <Link to="/" className="text-sm text-[var(--text2)] hover:text-[var(--text)]">Back to live feed</Link>
           <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--text3)]">{count.toLocaleString()} interred</span>
         </header>
         <div className="mt-5">
           {error ? <p className="text-red-400">{error}</p> : null}
-          {token ? <DetailPanel token={token} /> : !error ? <p className="text-sm text-[var(--text3)]">Loading...</p> : null}
+          {token ? <DetailPanel token={token} variant="page" /> : !error ? <p className="text-sm text-[var(--text3)]">Loading...</p> : null}
         </div>
       </div>
     </div>

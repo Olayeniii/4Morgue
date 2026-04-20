@@ -1,9 +1,10 @@
 import { motion } from "framer-motion"
 import { Link } from "react-router-dom"
 import type { DeathRecord } from "../types/death"
+import { BnbMark } from "./BnbMark"
 import { CauseBadge } from "./CauseBadge"
 import { cn } from "../lib/utils"
-import { formatLifespan, formatTimeAgo, formatUsdCompact, getCauseMeta, shortenAddressClean } from "../lib/ui"
+import { formatLifespan, formatMcapCompact, formatTimeAgo, getCauseMeta, getMcapLabel, shortenAddressClean } from "../lib/ui"
 
 export function FeedCard({
   token,
@@ -69,8 +70,11 @@ export function FeedCard({
             <div className="mt-0.5 text-base" style={{ color: "var(--paper-ink)" }}>{formatLifespan(token.lifespanMinutes)}</div>
           </div>
           <div>
-            <div className="font-mono uppercase tracking-[0.14em]" style={{ color: "var(--paper-subtle)" }}>Peak MCAP</div>
-            <div className="mt-0.5 text-base" style={{ color: "var(--paper-ink)" }}>{formatUsdCompact(token.peakMcapUSD)}</div>
+            <div className="font-mono uppercase tracking-[0.14em]" style={{ color: "var(--paper-subtle)" }}>{getMcapLabel(token.peakMcapCurrency)}</div>
+            <div className="mt-0.5 flex items-center gap-1 text-base" style={{ color: "var(--paper-ink)" }}>
+              {token.peakMcapCurrency === "BNB" ? <BnbMark className="h-3.5 w-3.5" /> : null}
+              <span>{formatMcapCompact(token.peakMcapUSD, token.peakMcapCurrency)}</span>
+            </div>
           </div>
           <div>
             <div className="font-mono uppercase tracking-[0.14em]" style={{ color: "var(--paper-subtle)" }}>Buyers</div>

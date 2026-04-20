@@ -17,7 +17,19 @@ export function RecentInterments({ items }: { items: DeathRecord[] }) {
 
           return (
             <li key={token.address} className="flex gap-3">
-              <div className="h-12 w-12 shrink-0 rounded-2xl border border-white/10" style={{ background: art.background }} />
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10"
+                style={{ background: art.background }}
+              >
+                {token.tokenImageUrl ? (
+                  <img
+                    src={token.tokenImageUrl}
+                    alt={token.name}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-base text-[var(--text)]">{token.name}</span>

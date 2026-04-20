@@ -128,8 +128,8 @@ export function HomePage() {
 
       <main className="p-4 lg:p-6">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-2xl">
-            <h1 className="font-display text-4xl leading-[0.98] text-[var(--text)] md:text-5xl">
+          <div className="max-w-[22rem]">
+            <h1 className="font-display text-[2.65rem] leading-[0.98] text-[var(--text)] md:text-[3.15rem]">
               They promised the moon.
               <span className="block text-[var(--accent-violet)]">We keep the receipts.</span>
             </h1>
@@ -197,3 +197,4 @@ export function HomePage() {
     </AppShell>
   )
 }
+
