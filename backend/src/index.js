@@ -20,9 +20,12 @@ function broadcast(obj) {
   }
 }
 
-const PORT = Number(process.env.PORT) || 3001
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
+
 const API_PUBLIC =
-  process.env.API_PUBLIC_URL?.replace(/\/$/, "") || `http://localhost:${PORT}`
+  process.env.API_PUBLIC_URL
+    ? process.env.API_PUBLIC_URL.replace(/\/$/, "")
+    : `http://localhost:${PORT}`;
 
 const app = express()
 app.use(cors({ origin: true }))
