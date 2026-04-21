@@ -6,6 +6,23 @@ import { generateObituary } from "../engine/obituary.js"
 /**
  * @param {{ store: ReturnType<import('../lib/store.js').createStore>, broadcast?: (msg: object) => void, apiPublicUrl: string, tracker?: { size(): number } }} ctx
  */
+
+
+function capByCause(items, cap = 20) {
+  const map = {}
+
+  for (const item of items) {
+    const c = item.causeOfDeath || "UNKNOWN"
+    if (!map[c]) map[c] = []
+
+    if (map[c].length < cap) {
+      map[c].push(item)
+    }
+  }
+
+  return Object.values(map).flat()
+}
+
 export function createRouter(ctx) {
   const r = express.Router()
 
@@ -15,7 +32,10 @@ export function createRouter(ctx) {
 
   // ── Live feed ───────────────────────────────────────────────────────────────
   r.get("/deaths/live", (req, res) => {
-    const items = withPublicUrls(ctx.store.live(50), baseUrl(req))
+    const items = withPublicUrls(
+      capByCause(ctx.store.live(200), 5),
+      baseUrl(req)
+    )
     res.json({ count: ctx.store.count(), items })
   })
 
@@ -29,7 +49,10 @@ export function createRouter(ctx) {
       cause: String(cause),
     })
     res.json({
-      items: withPublicUrls(result.items, baseUrl(req)),
+      items: withPublicUrls(
+        capByCause(result.items, 20),
+        baseUrl(req)
+      ),
       nextCursor: result.nextCursor,
       total: result.total,
     })

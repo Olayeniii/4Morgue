@@ -1,161 +1,143 @@
-/**
- * Dune Analytics integration for FourMorgue.
- * Seeds the graveyard with historical dead Four.meme tokens.
- */
-
-import { DuneClient } from "@duneanalytics/client-sdk"
 import { pickEpitaph } from "../engine/epitaphPool.js"
 
-/**
- * Fetch historical Four.meme token data from Dune.
- * @param {string} duneApiKey
- * @param {number} limit
- * @returns {Promise<object[]>} raw Dune rows
- */
+const DUNE_BASE_URL = "https://api.dune.com/api/v1"
 
-async function fetchBnbPrice() {
-  try {
-    const res = await fetch(
-      "https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT"
-    )
-    const json = await res.json()
-    const price = Number(json.price)
-    if (price > 0) {
-      console.log(`[dune] BNB price: $${price.toFixed(2)}`)
-      return price
-    }
-  } catch (e) {
-    console.warn("[dune] BNB price fetch failed:", e.message)
-  }
-  // Fallback chain
-  return Number(process.env.BNB_USD_PRICE) || 580
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 export async function fetchDuneTokens(duneApiKey, limit = 200) {
   const queryId = Number(process.env.DUNE_QUERY_ID) || 7334839
-  
-  const dune = new DuneClient(duneApiKey)
-  const query_result = await dune.getLatestResult({ queryId })
-  
-  if (!query_result?.result?.rows) {
-    throw new Error(`Dune query ${queryId} returned no rows`)
-  }
-  
-  // Limit results if needed
-  return query_result.result.rows.slice(0, limit)
-}
+  const MAX_CACHE_AGE_MS = 15 * 60 * 1000
 
-/**
- * Map a raw Dune row → FourMorgue DeathRecord shape.
- * Only tokens that did NOT graduate are dead — filter those.
- *
- * @param {object} row
- * @returns {object | null}
- */
-export function duneRowToDeath(row) {
-  const graduatedRaw = row.graduated
+  if (!duneApiKey) throw new Error("Missing DUNE_API_KEY")
 
-  const graduated = ["true", "1"].includes(
-    String(graduatedRaw).toLowerCase().trim()
-  ) || graduatedRaw === true || graduatedRaw === 1
+  let fallbackRows = []
 
-  const token = row.morgue_id || row.token_address || row.token || row.contract_address
-  if (!token) {
-    console.log("[dune] skipping row - no address:", row)
-    return null
-  }
-
-  // Map the current Dune query output first, then fall back to older schemas.
-  const createdAt = row.created_at || row.born_at
-    ? new Date(row.created_at || row.born_at).toISOString()
-    : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-
-  const diedAt = row.died_at || row.last_trade_at || row.last_heartbeat
-    ? new Date(row.died_at || row.last_trade_at || row.last_heartbeat).toISOString()
-    : new Date(new Date(createdAt).getTime() + 2 * 60 * 60 * 1000).toISOString()
-
-  const lifespanMinutes = row.lifespan_hrs
-    ? Math.round(row.lifespan_hrs * 60)
-    : Math.max(1, Math.round((new Date(diedAt) - new Date(createdAt)) / 60000))
-
-  const totalBuyers = Number(row.total_buyers || row.mourners || row.buyers || 0)
-  const volumeBnb = Number(row.total_volume_bnb || 0)
-  const volumeUsd = Number(row.estate_value_usd || row.total_volume_usd || row.volume_usd || 0)
-  const bondingCurve = Number(row.bonding_curve_pct || row.bonding_curve || 0)
-
-  const peakMcapValue = Number(
-    row.marketcap_bnb ||
-      row.peak_mcap_usd ||
-      volumeUsd * 3 ||
-      0
+  // 1. Try cached results first
+  const cachedRes = await fetch(
+    `${DUNE_BASE_URL}/query/${queryId}/results?limit=${limit}`,
+    {
+      headers: { "X-DUNE-API-KEY": duneApiKey },
+    }
   )
 
-  // Parse cause from Dune's text field
-  const duneCause = row.cause_of_death || ""
-  const cause = mapDuneCause(duneCause, { totalBuyers, lifespanMinutes, bondingCurve, volumeUsd: volumeUsd || volumeBnb })
+  if (cachedRes.ok) {
+    const cachedJson = await cachedRes.json()
 
-  // Extract name and symbol from "Name (SYMBOL)" format
-  const nameMatch = row.deceased_name?.match(/^(.+?)\s*\((.+?)\)$/)
-  const name = nameMatch ? nameMatch[1].trim() : row.deceased_name || row.name || "Unknown"
-  const symbol = nameMatch ? nameMatch[2].trim() : row.symbol || "???"
+    const rows = cachedJson?.result?.rows
 
-  return {
-    address: token,
-    name,
-    symbol,
-    createdAt,
-    diedAt,
-    graduated,
-    lifespanMinutes,
-    peakMcapUSD: peakMcapValue,
-    peakMcapCurrency: row.marketcap_bnb ? "BNB" : row.peak_mcap_usd ? "USD" : "USD",
-    totalBuyers,
-    totalTrades: Number(row.total_trades || 0),
-    creatorWallet: row.next_of_kin || row.creator || row.creator_wallet || "0x0000000000000000000000000000000000000000",
-    causeOfDeath: cause,
-    bondingCurveMax: Math.round(bondingCurve),
-    obituary: "",
-    epitaph: pickEpitaph(cause, token),
-    tone: CAUSE_TONES[cause],
-    tokenImageUrl: "",
-    cardImageUrl: "",
+    if (Array.isArray(rows)) {
+      fallbackRows = rows
+
+      const executionEndedAt =
+        cachedJson?.result?.execution_ended_at ||
+        cachedJson?.execution_ended_at ||
+        cachedJson?.result?.metadata?.execution_ended_at
+
+      if (executionEndedAt) {
+        const age =
+          Date.now() - new Date(executionEndedAt).getTime()
+
+        const isFresh = age <= MAX_CACHE_AGE_MS
+
+        if (isFresh && rows.length > 0) {
+          console.log(
+            `[dune] using cached rows (${rows.length})`
+          )
+          return rows.slice(0, limit)
+        }
+      }
+    }
   }
+
+  console.log("[dune] cache stale → executing fresh query")
+
+  // 2. Execute fresh query
+  const execRes = await fetch(
+    `${DUNE_BASE_URL}/query/${queryId}/execute`,
+    {
+      method: "POST",
+      headers: {
+        "X-DUNE-API-KEY": duneApiKey,
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  if (!execRes.ok) {
+    console.warn("[dune] execute failed → using cache")
+    return fallbackRows.slice(0, limit)
+  }
+
+  const execData = await execRes.json()
+  const executionId = execData?.execution_id
+
+  if (!executionId) {
+    console.warn("[dune] no execution_id → using cache")
+    return fallbackRows.slice(0, limit)
+  }
+
+  // 3. Poll execution status
+  let finished = false
+
+  for (let i = 0; i < 10; i++) {
+    const statusRes = await fetch(
+      `${DUNE_BASE_URL}/execution/${executionId}/status`,
+      {
+        headers: { "X-DUNE-API-KEY": duneApiKey },
+      }
+    )
+
+    if (!statusRes.ok) break
+
+    const status = await statusRes.json()
+
+    if (status.is_execution_finished) {
+      finished = true
+      break
+    }
+
+    if (status.state === "QUERY_STATE_FAILED") {
+      console.warn("[dune] execution failed → cache fallback")
+      return fallbackRows.slice(0, limit)
+    }
+
+    await sleep(1500)
+  }
+
+  if (!finished) {
+    console.warn("[dune] execution timeout → cache fallback")
+    return fallbackRows.slice(0, limit)
+  }
+
+  // 4. Get fresh results
+  const resultRes = await fetch(
+    `${DUNE_BASE_URL}/execution/${executionId}/results?limit=${limit}`,
+    {
+      headers: { "X-DUNE-API-KEY": duneApiKey },
+    }
+  )
+
+  if (resultRes.ok) {
+    const freshJson = await resultRes.json()
+    const freshRows = freshJson?.result?.rows
+
+    if (Array.isArray(freshRows)) {
+      console.log(
+        `[dune] fresh rows (${freshRows.length})`
+      )
+      return freshRows.slice(0, limit)
+    }
+  }
+
+  console.warn("[dune] fallback to cached rows")
+  return fallbackRows.slice(0, limit)
 }
 
 /**
- * Infer cause of death from available Dune metrics.
- * @param {{ totalBuyers: number, lifespanMinutes: number, bondingCurve: number, volumeUsd: number }} m
- * @returns {string}
+ * Cause tones
  */
-function inferCause({ totalBuyers, lifespanMinutes, bondingCurve, volumeUsd }) {
-  if (lifespanMinutes <= 5 && totalBuyers >= 3) return "SPEED_RUG"
-  if (totalBuyers <= 1) return "NEVER_LAUNCHED"
-  if (bondingCurve >= 85 && bondingCurve < 100) return "STALLED_AT_90"
-  if (lifespanMinutes <= 30 && volumeUsd > 0) return "DEV_DUMP"
-  return "QUIET_FADE"
-}
-
-/**
- * Map Dune's text cause to our enum
- */
-function mapDuneCause(duneText, metrics) {
-  const normalized = String(duneText || "").trim().toUpperCase()
-
-  if (normalized === "DEV_DUMP") return "DEV_DUMP"
-  if (normalized === "NEVER_LAUNCHED") return "NEVER_LAUNCHED"
-  if (normalized === "QUIET_FADE") return "QUIET_FADE"
-  if (normalized === "STALLED_AT_90") return "STALLED_AT_90"
-  if (normalized === "SPEED_RUG") return "SPEED_RUG"
-
-  if (duneText.includes("Murdered by Dev")) return "DEV_DUMP"
-  if (duneText.includes("Stillborn")) return "NEVER_LAUNCHED"
-  if (duneText.includes("Abandoned")) return "QUIET_FADE"
-  if (duneText.includes("Life Support")) return "QUIET_FADE"
-  
-  // Fallback to inference
-  return inferCause(metrics)
-}
-
 const CAUSE_TONES = {
   DEV_DUMP: "savage",
   QUIET_FADE: "eulogy",
@@ -165,74 +147,228 @@ const CAUSE_TONES = {
 }
 
 /**
- * Seed the store with historical deaths from Dune.
- * Skips addresses already in the store (dedup by address).
- *
- * @param {ReturnType<import('./store.js').createStore>} store
- * @param {string} duneApiKey
- * @returns {Promise<number>} number of new deaths added
+ * Row mapping
+ */
+export function duneRowToDeath(row) {
+  const token =
+    row.morgue_id ||
+    row.token_address ||
+    row.token ||
+    row.contract_address
+
+  if (!token) return null
+
+  const createdAtRaw = row.created_at || row.born_at
+  const diedAtRaw =
+    row.died_at || row.last_trade_at || row.last_heartbeat
+
+  const createdAt = createdAtRaw
+    ? new Date(createdAtRaw).toISOString()
+    : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+
+  const diedAt = diedAtRaw
+    ? new Date(diedAtRaw).toISOString()
+    : new Date().toISOString()
+
+  const lifespanMinutes = Math.max(
+    1,
+    Math.round((new Date(diedAt) - new Date(createdAt)) / 60000)
+  )
+
+  // --------------------
+
+  const totalBuyersRaw =
+    row.total_buyers ?? row.mourners ?? row.buyers ?? null
+
+  const totalTradesRaw =
+    row.total_trades ?? row.txs ?? row.transactions ?? null
+
+  const volumeBnbRaw =
+    row.total_volume_bnb ?? null
+
+  const volumeUsdRaw =
+    row.total_volume_usd ?? row.volume_usd ?? null
+
+  const bondingCurveRaw =
+    row.bonding_curve_pct ?? null
+
+    const peakMcapRaw =
+    row.marketcap_bnb ??
+    row.peak_mcap_bnb ??
+    row.peak_mcap_usd ??
+    null
+
+  // convert safely
+  const num = (v) =>
+    v === null || v === undefined || v === "" ? null : Number(v)
+
+  const totalBuyers = num(totalBuyersRaw)
+  const totalTrades = num(totalTradesRaw)
+  const volumeBnb = num(volumeBnbRaw)
+  const volumeUsd = num(volumeUsdRaw)
+  const bondingCurve = num(bondingCurveRaw)
+
+  const peakMcapValue = num(peakMcapRaw)
+
+  // infer currency from which column was used
+  const peakMcapCurrency =
+    row.marketcap_bnb != null || row.peak_mcap_bnb != null
+      ? "BNB"
+      : "USD"
+
+const duneCause = row.cause_of_death || ""
+
+ //detect weak rows
+  const isStaleProxy =
+  !row.total_volume_bnb &&
+  !row.peak_mcap_usd &&
+  !row.total_trades
+
+//adjust metrics
+const adjustedMetrics = {
+  totalBuyers,
+  lifespanMinutes,
+  bondingCurve,
+  volumeUsd: isStaleProxy ? volumeUsd * 0.5 : volumeUsd,
+}
+
+
+
+  // ---------- CAUSE ----------
+
+  const cause = mapDuneCause(duneCause, adjustedMetrics)
+
+  function softenCause(cause, row) {
+    const weak =
+      !row.total_trades || row.total_trades < 3
+  
+    if (!weak) return cause
+  
+    const pool = ["QUIET_FADE", "DEV_DUMP", "NEVER_LAUNCHED"]
+  
+    return pool[Math.floor(Math.random() * pool.length)]
+  }
+
+  const finalCause = softenCause(cause, row)
+
+  // ---------- NAME + SYMBOL ----------
+
+  const nameMatch = row.deceased_name?.match(/^(.+?)\s*\((.+?)\)$/)
+
+  const name =
+    nameMatch?.[1]?.trim() ||
+    row.deceased_name ||
+    row.name ||
+    "Unknown"
+
+  const symbol =
+    nameMatch?.[2]?.trim() ||
+    row.symbol ||
+    "???"
+
+
+  //--------Creator Wallet--------
+  const creatorWallet =
+  row.creator ??
+  row.creator_wallet ??
+  row.next_of_kin ??
+  null;  
+
+  // ---------- FINAL RETURN ----------
+
+  return {
+    address: token,
+    name,
+    symbol,
+    createdAt,
+    diedAt,
+    lifespanMinutes,
+    totalBuyers,
+    totalTrades,
+    peakMcapUSD: peakMcapValue,
+    peakMcapCurrency,
+    creatorWallet,
+    bondingCurveMax:
+      bondingCurve !== null ? Math.round(bondingCurve) : null,
+      causeOfDeath: finalCause,
+    obituary: "",
+    epitaph: pickEpitaph(cause, token),
+    tone: CAUSE_TONES[cause] || "eulogy",
+  }
+}
+
+/**
+ * Cause inference
+ */
+function inferCause({ totalBuyers, lifespanMinutes, bondingCurve, volumeUsd }) {
+  const strongData =
+    totalBuyers != null &&
+    lifespanMinutes != null &&
+    volumeUsd != null
+
+  if (lifespanMinutes <= 5 && totalBuyers >= 3) {
+    return "SPEED_RUG"
+  }
+
+  // soften NEVER_LAUNCHED so it is not default-heavy
+  if (totalBuyers === 0 && lifespanMinutes <= 10) {
+    if (!strongData) return "QUIET_FADE"
+    return "NEVER_LAUNCHED"
+  }
+
+  if (bondingCurve >= 85) return "STALLED_AT_90"
+
+  if (lifespanMinutes <= 30 && volumeUsd > 0) {
+    return "DEV_DUMP"
+  }
+
+  return "QUIET_FADE"
+}
+
+/**
+ * Cause mapper
+ */
+function mapDuneCause(duneText, metrics) {
+  const normalized = String(duneText || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+
+  if (normalized === "DEV_DUMP") return "DEV_DUMP"
+  if (normalized === "NEVER_LAUNCHED") return "NEVER_LAUNCHED"
+  if (normalized === "QUIET_FADE") return "QUIET_FADE"
+  if (normalized === "STALLED_AT_90") return "STALLED_AT_90"
+  if (normalized === "SPEED_RUG") return "SPEED_RUG"
+
+  return inferCause(metrics)
+}
+
+/**
+ * Seeder
  */
 export async function seedFromDune(store, duneApiKey) {
+  console.log("[dune] seeding graveyard...")
 
-  
-  console.log("[dune] seeding graveyard from historical data…")
-  let added = 0
   try {
     const rows = await fetchDuneTokens(duneApiKey)
-    console.log(`[dune] fetched ${rows.length} rows`)
+    let added = 0
+
     for (const row of rows) {
       const death = duneRowToDeath(row)
       if (!death) continue
-      console.log(
-        "[dune][map]",
-        JSON.stringify({
-          raw: {
-            token: row.token,
-            name: row.name,
-            symbol: row.symbol,
-            created_at: row.created_at,
-            total_trades: row.total_trades,
-            total_buyers: row.total_buyers,
-            last_trade_at: row.last_trade_at,
-            total_volume_bnb: row.total_volume_bnb,
-            marketcap_bnb: row.marketcap_bnb,
-            cause_of_death: row.cause_of_death,
-            died_at: row.died_at,
-          },
-          mapped: {
-            address: death.address,
-            name: death.name,
-            symbol: death.symbol,
-            createdAt: death.createdAt,
-            diedAt: death.diedAt,
-            totalTrades: death.totalTrades,
-            totalBuyers: death.totalBuyers,
-            peakMcapValue: death.peakMcapUSD,
-            peakMcapCurrency: death.peakMcapCurrency,
-            causeOfDeath: death.causeOfDeath,
-          },
-        })
-      )
-      const existing = store.get(death.address)
-      if (existing) {
-        store.updateDeath(death.address, {
-          ...death,
-          obituary: existing.obituary || death.obituary,
-          epitaph: existing.epitaph || death.epitaph,
-          tone: existing.obituary ? existing.tone : death.tone,
-          tokenImageUrl: existing.tokenImageUrl || death.tokenImageUrl,
-          cardImageUrl: existing.cardImageUrl || death.cardImageUrl,
-        })
-        continue
-      }
 
-      const inserted = store.addDeath(death)
-      if (inserted) added++
+      const existing = store.get(death.address)
+
+      if (existing) {
+        store.updateDeath(death.address, death)
+      } else {
+        store.addDeath(death)
+        added++
+      }
     }
-    console.log(`[dune] seeded ${added} historical deaths (${rows.length - added} skipped/graduated)`)
+
+    console.log(`[dune] seeded ${added} records`)
   } catch (e) {
     console.warn("[dune] seed failed:", e.message)
-    console.warn("[dune] graveyard will use mock data only — check DUNE_API_KEY and DUNE_QUERY_ID")
   }
-  return added
 }
