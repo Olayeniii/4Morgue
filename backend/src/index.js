@@ -1,5 +1,4 @@
-import dotenv from "dotenv"
-dotenv.config() // Load environment variables from .env file  
+import "dotenv/config";
 import http from "http"
 import express from "express"
 import cors from "cors"
