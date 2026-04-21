@@ -2,9 +2,8 @@
   "name": "fourmorgue",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
-    "build": "npm run build --prefix frontend",
-    "install:all": "npm install --prefix backend && npm install --prefix frontend"
+    "dev": "concurrently -n api,web -c blue,magenta \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
+    "build": "pnpm --filter fourmorgue-frontend build"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
